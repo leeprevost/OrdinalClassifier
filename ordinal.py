@@ -62,7 +62,7 @@ class OrdinalClassifier(
     --------
     Ordinal attribute A* with ordered values V1, V2, ..., Vk into k-1 binary attrbutes,
     one for each of the original attribute's first K-1 values.  The ith binary attribute
-    repsrewnts the test A* > Vi.
+    represents the test A* > Vi.
     --------
 
     @todo: should this stay in?  My starting point was to use OvR as basis.
@@ -161,7 +161,6 @@ class OrdinalClassifier(
     def __init__(self, estimator, *, n_jobs=None):
         self.estimator = estimator
         self.n_jobs = n_jobs
-        self.estimators_=[]
 
     def fit(self, X, y):
         """Fit underlying estimators.
@@ -189,26 +188,31 @@ class OrdinalClassifier(
 
         self.classes_ = np.sort(np.unique(y))
 
+        #added back in to make multiclass property work properly.
+        self.label_binarizer_ = LabelBinarizer(sparse_output=True)
+        self.label_binarizer_.fit(y)
+
         # In cases where individual estimators are very fast to train setting
         # n_jobs > 1 in can results in slower performance due to the overhead
         # of spawning threads.  See joblib issue #112.
 
-        if self.classes_ > 2:
+        if self.classes_.shape[0] > 2:
             # for each k - 1 ordinal value we fit a binary classification problem
-            for i in range(self.classes_.shape[0]-1):
-                binary_y = y[(y > self.classes_[i])]
-                self.estimators_.append(Parallel(n_jobs=self.n_jobs)(
-                    delayed(_fit_binary)(
+
+
+            self.estimators_ = Parallel(n_jobs=self.n_jobs)(
+                delayed(_fit_binary)(
                     self.estimator,
                     X,
-                    binary_y,
+                    np.where(y > self.classes_[i], 1, 0),
                     classes=[
-                        "not %s" % self.classes_[i],
-                        self.label_binarizer_.classes_[i],
+                        '= %s' % i,
+                        "> %s" % i,
                         ],
                     )
-                    )
-                )
+                for i in range(self.classes_.shape[0]-1)
+            )
+
 
         if hasattr(self.estimators_[0], "n_features_in_"):
             self.n_features_in_ = self.estimators_[0].n_features_in_
@@ -364,6 +368,7 @@ class OrdinalClassifier(
         if not self.multilabel_:
             # Then, probabilities should be normalized to 1.
             #predicted /= np.sum(predicted, axis=1)[:, np.newaxis]
+            pass
         return predicted
 
     @available_if(_estimators_has("decision_function"))
