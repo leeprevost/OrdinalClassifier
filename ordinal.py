@@ -186,7 +186,7 @@ class OrdinalClassifier(
         # https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
         # by Muhammad
 
-        self.classes_ = np.sort(np.unique(y))
+        self.classes_ = np.sort(np.unique(y))   #don't I need a way to have input on order?
 
         #added back in to make multiclass property work properly.
         self.label_binarizer_ = LabelBinarizer(sparse_output=True)
@@ -199,6 +199,10 @@ class OrdinalClassifier(
         if self.classes_.shape[0] > 2:
             # for each k - 1 ordinal value we fit a binary classification problem
 
+            # @todo: question - should I allow for this to be reversed with kwargs in order to
+            # emphasize the positive class (eg. "hot" in cold < warm < hot three class problem)
+
+            # @todo: derived estimators: classes become imbalanced? how to balance classes?  input to weight kw? SMOTE?
 
             self.estimators_ = Parallel(n_jobs=self.n_jobs)(
                 delayed(_fit_binary)(
@@ -350,25 +354,32 @@ class OrdinalClassifier(
         # Y[i, j] gives the probability that sample i has the label j.
         # In the multi-label case, these are not disjoint.
         Y = np.array([e.predict_proba(X)[:, 1] for e in self.estimators_]).T
-        predicted = []
-        for i, y in enumerate(self.classes_):
-            if len(self.estimators_) == 1:  #binary problem
-                # Only one estimator, but we still want to return probabilities
-                # for two classes.
-                Y = np.concatenate(((1 - Y), Y), axis=1)
-            elif i == 0:  #first pass
-                predicted.append(1 - Y[y][:, 1])
-            elif y == y[-1]: #last pass
-                predicted.append(Y[y-1][:, 1])
-            else:  #middle passes
-                predicted.append(Y[y-1][:, 1] - Y[y][:, 1])
 
-        predicted = np.vstack(predicted).T
+        if len(self.estimators_) == 1:  #binary problem
+            # Only one estimator, but we still want to return probabilities
+            # for two classes.
+            Y = np.concatenate(((1 - Y), Y), axis=1)
+            predicted = Y
+
+        else:
+            predicted = {}
+
+
+            for i, cls in enumerate(self.classes_):
+
+                if i == 0:  #first pass
+                    predicted.update({cls : 1-Y[:, 0]})  # first class
+                elif cls == self.classes_[-1]: #last pass
+                    predicted.update({cls : Y[:, -1]})  # last class
+                else:  #middle passes
+                    predicted.update({cls : Y[:, cls-1] - Y[:, cls]}) #middle classes
+
+            predicted = np.vstack(predicted.values()).T
 
         if not self.multilabel_:
             # Then, probabilities should be normalized to 1.
-            #predicted /= np.sum(predicted, axis=1)[:, np.newaxis]
-            pass
+            predicted /= np.sum(predicted, axis=1)[:, np.newaxis]
+
         return predicted
 
     @available_if(_estimators_has("decision_function"))
