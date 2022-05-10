@@ -122,9 +122,6 @@ class OrdinalClassifier(
         Class labels.
     n_classes_ : int
         Number of classes.
-    label_binarizer_ : LabelBinarizer object
-        Object used to transform multiclass labels to binary labels and
-        vice-versa.
     multilabel_ : boolean
         Whether a OneVsRestClassifier is a multilabel classifier.
     n_features_in_ : int
@@ -166,7 +163,6 @@ class OrdinalClassifier(
         # @todo: I think I need a way to pass non default class ordering.   Default is np.sort(np.unique(y)) but what if another order needed such that classes_[0] > classes_[n] (eg. hot, cold, warm)
         self.estimator = estimator
         self.n_jobs = n_jobs
-        self._estimator_decision_function = hasattr(estimator, "decision_function")
 
     def fit(self, X, y):
         """Fit underlying estimators.
@@ -339,6 +335,8 @@ class OrdinalClassifier(
         T : (sparse) array-like of shape (n_samples, n_classes)
             Returns the probability of the sample for each class in the model,
             where classes are ordered as they are in `self.classes_`.
+
+        @todo: test multilabel
         """
         check_is_fitted(self)
         # Y[i, j] gives the probability that sample i has the label j.
@@ -459,3 +457,11 @@ class OrdinalClassifier(
     def _more_tags(self):
         """Indicate if wrapped estimator is using a precomputed Gram matrix"""
         return {"pairwise": _safe_tags(self.estimator, key="pairwise")}
+
+    @property
+    def _has_decision_function(self):
+        return hasattr(self.estimator, "decision_function")
+
+    @property
+    def _has_predict_proba(self):
+        return hasattr(self.estimator, "predict_proba")
