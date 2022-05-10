@@ -2,6 +2,7 @@ import numpy as np
 import warnings
 import scipy.sparse as sp
 import itertools
+import array
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone, is_classifier
 from sklearn.base import MultiOutputMixin
@@ -18,6 +19,7 @@ from sklearn.utils.multiclass import (
     _check_partial_fit_first_call,
     check_classification_targets,
     _ovr_decision_function,
+    type_of_target
 )
 from sklearn.utils.metaestimators import _safe_split, available_if
 from sklearn.utils.fixes import delayed
@@ -27,8 +29,10 @@ from sklearn.multiclass import (
     _predict_binary,
     _estimators_has
 )
-
 from joblib import Parallel
+
+
+
 
 class OrdinalClassifier(
     MultiOutputMixin, ClassifierMixin, MetaEstimatorMixin, BaseEstimator
@@ -159,8 +163,10 @@ class OrdinalClassifier(
     """
 
     def __init__(self, estimator, *, n_jobs=None):
+        # @todo: I think I need a way to pass non default class ordering.   Default is np.sort(np.unique(y)) but what if another order needed such that classes_[0] > classes_[n] (eg. hot, cold, warm)
         self.estimator = estimator
         self.n_jobs = n_jobs
+        self._estimator_decision_function = hasattr(estimator, "decision_function")
 
     def fit(self, X, y):
         """Fit underlying estimators.
@@ -186,11 +192,11 @@ class OrdinalClassifier(
         # https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
         # by Muhammad
 
-        self.classes_ = np.sort(np.unique(y))   #don't I need a way to have input on order?
+        self.classes_ = np.sort(np.unique(y))  # don't I need a way to have input on order?
 
-        #added back in to make multiclass property work properly.
-        self.label_binarizer_ = LabelBinarizer(sparse_output=True)
-        self.label_binarizer_.fit(y)
+        #self.label_binarizer_ = LabelBinarizer(sparse_output=True)
+        #self.label_binarizer_.fit(y)
+        self.y_type_ = type_of_target(y)
 
         # In cases where individual estimators are very fast to train setting
         # n_jobs > 1 in can results in slower performance due to the overhead
@@ -202,7 +208,8 @@ class OrdinalClassifier(
             # @todo: question - should I allow for this to be reversed with kwargs in order to
             # emphasize the positive class (eg. "hot" in cold < warm < hot three class problem)
 
-            # @todo: derived estimators: classes become imbalanced? how to balance classes?  input to weight kw? SMOTE?
+            # @todo: derived estimators: classes become imbalanced? how to balance classes?
+            # probable answer: make use of "weight" kwarg when passing estimator to "init".   Warning?
 
             self.estimators_ = Parallel(n_jobs=self.n_jobs)(
                 delayed(_fit_binary)(
@@ -212,11 +219,10 @@ class OrdinalClassifier(
                     classes=[
                         '= %s' % i,
                         "> %s" % i,
-                        ],
-                    )
-                for i in range(self.classes_.shape[0]-1)
+                    ],
+                )
+                for i in range(self.classes_.shape[0] - 1)
             )
-
 
         if hasattr(self.estimators_[0], "n_features_in_"):
             self.n_features_in_ = self.estimators_[0].n_features_in_
@@ -249,7 +255,7 @@ class OrdinalClassifier(
             Instance of partially fitted estimator.
         """
 
-        pass  #for now bypass this and edit it later.  @todo: implement partial_fit
+        pass  # for now bypass this and edit it later.  @todo: implement partial_fit
         if _check_partial_fit_first_call(self, classes):
             if not hasattr(self.estimator, "partial_fit"):
                 raise ValueError(
@@ -273,7 +279,7 @@ class OrdinalClassifier(
                 ).format(np.unique(y), self.classes_)
             )
 
-        #this is where we need n-1 targets from binarizer.
+        # this is where we need n-1 targets from binarizer.
         # y > Vi
         Y = self.label_binarizer_.transform(y)
         Y = Y.tocsc()
@@ -303,32 +309,14 @@ class OrdinalClassifier(
         check_is_fitted(self)
 
         n_samples = _num_samples(X)
-        if self.label_binarizer_.y_type_ == "multiclass":
-            maxima = np.empty(n_samples, dtype=float)
-            maxima.fill(-np.inf)
-            argmaxima = np.zeros(n_samples, dtype=int)
-            for i, e in enumerate(self.estimators_):
-                pred = _predict_binary(e, X)
-                np.maximum(maxima, pred, out=maxima)
-                argmaxima[maxima == pred] = i
-            return self.classes_[argmaxima]
+        if self.y_type_ == "multiclass":
+            return np.argmax(self.predict_proba(X), axis=1)
+
+        # need to rewrite the following if not "multiclass" or no predict_proba or want to use threshold
         else:
-            if hasattr(self.estimators_[0], "decision_function") and is_classifier(
-                    self.estimators_[0]
-            ):
-                thresh = 0
-            else:
-                thresh = 0.5
-            indices = array.array("i")
-            indptr = array.array("i", [0])
-            for e in self.estimators_:
-                indices.extend(np.where(_predict_binary(e, X) > thresh)[0])
-                indptr.append(len(indices))
-            data = np.ones(len(indices), dtype=int)
-            indicator = sp.csc_matrix(
-                (data, indices, indptr), shape=(n_samples, len(self.estimators_))
-            )
-            return self.label_binarizer_.inverse_transform(indicator)
+            #replaced elaborate else logic from OvR with NotImplementedError
+            raise NotImplementedError("This type of y target not implemented:  type: ".format(self.y_type_))
+
 
     @available_if(_estimators_has("predict_proba"))
     def predict_proba(self, X):
@@ -355,7 +343,7 @@ class OrdinalClassifier(
         # In the multi-label case, these are not disjoint.
         Y = np.array([e.predict_proba(X)[:, 1] for e in self.estimators_]).T
 
-        if len(self.estimators_) == 1:  #binary problem
+        if len(self.estimators_) == 1:  # binary problem
             # Only one estimator, but we still want to return probabilities
             # for two classes.
             Y = np.concatenate(((1 - Y), Y), axis=1)
@@ -364,15 +352,16 @@ class OrdinalClassifier(
         else:
             predicted = {}
 
-
             for i, cls in enumerate(self.classes_):
 
-                if i == 0:  #first pass
-                    predicted.update({cls : 1-Y[:, 0]})  # first class
-                elif cls == self.classes_[-1]: #last pass
-                    predicted.update({cls : Y[:, -1]})  # last class
-                else:  #middle passes
-                    predicted.update({cls : Y[:, cls-1] - Y[:, cls]}) #middle classes
+                if i == 0:  # first pass
+                    predicted.update({'V_first': 1 - Y[:, 0]})  # first class
+                elif cls == self.classes_[-1]:  # last pass
+                    predicted.update({'V_last': Y[:, -1]})  # last class
+                elif i > 2:  # middle passes, need qualifier so it doesn't overwrite last class
+                    predicted.update({'V_{}'.format(i+1): Y[:, cls - 1] - Y[:, cls]})  # middle classes
+
+            self.ordinal_probs_ = predicted
 
             predicted = np.vstack(predicted.values()).T
 
@@ -382,7 +371,7 @@ class OrdinalClassifier(
 
         return predicted
 
-    @available_if(_estimators_has("decision_function"))
+    @available_if(_estimator_has('decision_function'))
     def decision_function(self, X):
         """Decision function for the OneVsRestClassifier.
         Return the distance of each sample from the decision boundary for each
@@ -411,7 +400,7 @@ class OrdinalClassifier(
     @property
     def multilabel_(self):
         """Whether this is a multilabel classifier."""
-        return self.label_binarizer_.y_type_.startswith("multilabel")
+        return self.y_type_.startswith("multilabel")
 
     @property
     def n_classes_(self):
@@ -467,5 +456,3 @@ class OrdinalClassifier(
     def _more_tags(self):
         """Indicate if wrapped estimator is using a precomputed Gram matrix"""
         return {"pairwise": _safe_tags(self.estimator, key="pairwise")}
-
-
