@@ -256,6 +256,8 @@ class OrdinalClassifier(
         """
 
         pass  # for now bypass this and edit it later.  @todo: implement partial_fit
+
+        '''
         if _check_partial_fit_first_call(self, classes):
             if not hasattr(self.estimator, "partial_fit"):
                 raise ValueError(
@@ -293,7 +295,7 @@ class OrdinalClassifier(
         if hasattr(self.estimators_[0], "n_features_in_"):
             self.n_features_in_ = self.estimators_[0].n_features_in_
 
-        return self
+        return self '''
 
     def predict(self, X):
         """Predict multi-class targets using underlying estimators.
@@ -351,17 +353,17 @@ class OrdinalClassifier(
 
         else:
             predicted = {}
-
+            pr_name = "Pr(y={}"
             for i, cls in enumerate(self.classes_):
-
+                pr_names = "Pr"
                 if i == 0:  # first pass
-                    predicted.update({'V_first': 1 - Y[:, 0]})  # first class
+                    predicted.update({pr_name.format(cls): 1 - Y[:, 0]})  # first class
                 elif cls == self.classes_[-1]:  # last pass
-                    predicted.update({'V_last': Y[:, -1]})  # last class
+                    predicted.update({pr_name.format(cls): Y[:, -1]})  # last class
                 elif i > 2:  # middle passes, need qualifier so it doesn't overwrite last class
-                    predicted.update({'V_{}'.format(i+1): Y[:, cls - 1] - Y[:, cls]})  # middle classes
+                    predicted.update({pr_name.format(cls): Y[:, cls - 1] - Y[:, cls]})  # middle classes
 
-            self.ordinal_probs_ = predicted
+            self.ordinal_prob_names_ = predicted.keys()
 
             predicted = np.vstack(predicted.values()).T
 
@@ -371,7 +373,7 @@ class OrdinalClassifier(
 
         return predicted
 
-    @available_if(_estimator_has('decision_function'))
+    @available_if(_estimators_has('decision_function'))
     def decision_function(self, X):
         """Decision function for the OneVsRestClassifier.
         Return the distance of each sample from the decision boundary for each
@@ -390,6 +392,7 @@ class OrdinalClassifier(
                 output shape changed to ``(n_samples,)`` to conform to
                 scikit-learn conventions for binary classification.
         """
+
         check_is_fitted(self)
         if len(self.estimators_) == 1:
             return self.estimators_[0].decision_function(X)
