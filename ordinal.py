@@ -1,32 +1,22 @@
 import numpy as np
-import warnings
 import scipy.sparse as sp
-import itertools
-import array
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone, is_classifier
 from sklearn.base import MultiOutputMixin
 from sklearn.base import MetaEstimatorMixin, is_regressor
-from sklearn.base import _is_pairwise
-from sklearn.preprocessing import LabelBinarizer
-from sklearn.metrics.pairwise import euclidean_distances
-from sklearn.utils import check_random_state
 from sklearn.utils.deprecation import deprecated
 from sklearn.utils._tags import _safe_tags
 from sklearn.utils.validation import _num_samples
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.multiclass import (
     _check_partial_fit_first_call,
-    check_classification_targets,
-    _ovr_decision_function,
     type_of_target
 )
 from sklearn.utils.metaestimators import _safe_split, available_if
 from sklearn.utils.fixes import delayed
 from sklearn.multiclass import (
     _fit_binary,
-    _partial_fit_binary,
-    _predict_binary,
+
     _estimators_has
 )
 from joblib import Parallel
@@ -163,8 +153,9 @@ class OrdinalClassifier(
         # @todo: I think I need a way to pass non default class ordering.   Default is np.sort(np.unique(y)) but what if another order needed such that classes_[0] > classes_[n] (eg. hot, cold, warm)
         self.estimator = estimator
         self.n_jobs = n_jobs
+        self.class_order = None
 
-    def fit(self, X, y):
+    def fit(self, X, y, reverse_classes=False):
         """Fit underlying estimators.
         Parameters
         ----------
@@ -173,6 +164,9 @@ class OrdinalClassifier(
         y : (sparse) array-like of shape (n_samples,) or (n_samples, n_classes)
             Multi-class targets. An indicator matrix turns on multilabel
             classification.
+
+        reverse_classes: reorders classes to make last class more important (eg. hot>mild>cold)
+
         Returns
         -------
         self : object
@@ -187,8 +181,11 @@ class OrdinalClassifier(
         # following improvised from
         # https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
         # by Muhammad
-
-        self.classes_ = np.sort(np.unique(y))  # don't I need a way to have input on order?
+        classes = np.sort(np.unique(y))   # don't I need a way to have input on order?
+        if reverse_classes:
+            self.classes_ = classes[::-1]
+        else:
+            self.classes_ = classes
 
         #self.label_binarizer_ = LabelBinarizer(sparse_output=True)
         #self.label_binarizer_.fit(y)
@@ -295,6 +292,9 @@ class OrdinalClassifier(
 
     def predict(self, X):
         """Predict multi-class targets using underlying estimators.
+
+        **estimator must have predict_proba method.
+
         Parameters
         ----------
         X : (sparse) array-like of shape (n_samples, n_features)
@@ -307,7 +307,7 @@ class OrdinalClassifier(
         check_is_fitted(self)
 
         n_samples = _num_samples(X)
-        if self.y_type_ == "multiclass":
+        if self.y_type_ == "multiclass":  #this work for pred_proba but not decision function and that is primary method
             return np.argmax(self.predict_proba(X), axis=1)
 
         # need to rewrite the following if not "multiclass" or no predict_proba or want to use threshold
@@ -336,7 +336,7 @@ class OrdinalClassifier(
             Returns the probability of the sample for each class in the model,
             where classes are ordered as they are in `self.classes_`.
 
-        @todo: test multilabel
+        @todo: multilabel is untested
         """
         check_is_fitted(self)
         # Y[i, j] gives the probability that sample i has the label j.
@@ -350,20 +350,7 @@ class OrdinalClassifier(
             predicted = Y
 
         else:
-            predicted = {}
-            pr_name = "Pr(y={}"
-            for i, cls in enumerate(self.classes_):
-                pr_names = "Pr"
-                if i == 0:  # first pass
-                    predicted.update({pr_name.format(cls): 1 - Y[:, 0]})  # first class
-                elif cls == self.classes_[-1]:  # last pass
-                    predicted.update({pr_name.format(cls): Y[:, -1]})  # last class
-                elif i > 2:  # middle passes, need qualifier so it doesn't overwrite last class
-                    predicted.update({pr_name.format(cls): Y[:, cls - 1] - Y[:, cls]})  # middle classes
-
-            self.ordinal_prob_names_ = predicted.keys()
-
-            predicted = np.vstack(predicted.values()).T
+            predicted = self._ordinal_binary_to_class_array(Y)
 
         if not self.multilabel_:
             # Then, probabilities should be normalized to 1.
@@ -394,9 +381,32 @@ class OrdinalClassifier(
         check_is_fitted(self)
         if len(self.estimators_) == 1:
             return self.estimators_[0].decision_function(X)
-        return np.array(
-            [est.decision_function(X).ravel() for est in self.estimators_]
-        ).T
+        else:
+            Y = np.array([e.predict_proba(X) for e in self.estimators_]).T
+            decision = self._ordinal_binary_to_class_array(Y)
+            return decision
+
+
+
+    def _ordinal_binary_to_class_array(self, Y):
+        predicted = {}
+        pr_name = "Pr(y={}"
+        for i, cls in enumerate(self.classes_):
+            pr_names = "Pr"
+            if i == 0:  # first pass
+                #Pr(V1) = 1 − Pr(Target > V1)
+                predicted.update({pr_name.format(cls): 1 - Y[:, 0]})  # first class
+            elif cls == self.classes_[-1]:  # last pass
+                #Pr(Vk) = Pr(Target > Vk−1)
+                predicted.update({pr_name.format(cls): Y[:, -1]})  # last class
+            elif i>0:  # middle passes, need qualifier so it doesn't overwrite last class
+                #Pr(Vi) = Pr(Target > Vi−1) − Pr(Target > Vi) , 1 < i < k
+                predicted.update({pr_name.format(cls): Y[:, cls - 1] - Y[:, cls]})  # middle classes
+
+        self.ordinal_prob_names_ = predicted.keys()
+
+        predicted = np.vstack(list(predicted.values())).T
+        return predicted
 
     @property
     def multilabel_(self):
