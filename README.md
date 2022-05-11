@@ -30,7 +30,7 @@ Ordinal attribute A* with ordered values V1, V2, ..., Vk into k-1 binary attrbut
 one for each of the original attribute's first K-1 values.  The ith binary attribute
 represents the test A* > Vi.
 
-Initial and prelminary testing does seem to show improved classifiction results as measured by precision
+Initial and prelminary testing does seem to show improved classification results as measured by precision
 and f1 scores.  Also, as raised by Muhammad and Chistopher Coffee on Muhammad's medium post, there 
 was inital concern about binary probabilities not summing to 1.   For this, I used the same method 
 Sklearn uses in the OnevsRest classifier which normalizes the binary predict_prob to 1 
