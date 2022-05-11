@@ -37,9 +37,9 @@ Sklearn uses in the OnevsRest classifier which normalizes the binary predict_pro
 
 https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
 
-Also, as raised by Coffee, this method does seem to most improve the lowest class in the ordered class (eg. "cold"
-in cold<warm<hot).  So, if your positive class is "hot," consideration should be to reverse the classses in order
-to improve scores on "hot."  Am conducting further testing on this now.
+Also, as raised by Coffee, this method does seem to improve the lowest class in the ordered class (eg. "cold"
+in cold<warm<hot) more so than the other classes.  So, if the positive class is "hot," consideration should be 
+to reverse the classses in order to improve scores on "hot."  Am conducting further testing on this now.
 
 Adapted from https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html
 Adapted by Lee Prevost
