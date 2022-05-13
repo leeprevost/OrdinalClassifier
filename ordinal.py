@@ -21,9 +21,6 @@ from sklearn.multiclass import (
 )
 from joblib import Parallel
 
-
-
-
 class OrdinalClassifier(
     MultiOutputMixin, ClassifierMixin, MetaEstimatorMixin, BaseEstimator
 ):
@@ -59,7 +56,7 @@ class OrdinalClassifier(
     represents the test A* > Vi.
     --------
 
-    @todo: should this stay in?  My starting point was to use OvR as basis.
+    @todo: should this stay in?  My starting point was to use OvR as basis.  (not tested)
     OrdinalClassifier can also be used for multilabel classification. To use
     this feature, provide an indicator matrix for the target `y` when calling
     `.fit`. In other words, the target labels should be formatted as a 2D
@@ -81,6 +78,8 @@ class OrdinalClassifier(
         for more details.
         .. versionchanged:: v0.20
            `n_jobs` default changed from 1 to None
+    reverse_classes  : reorders classes to make last class more important (eg. hot>mild>cold)
+
     Attributes  (based on OvR classifier -- @todo: edit)
     ----------
     estimators_ : list of `n_classes` estimators
@@ -149,13 +148,14 @@ class OrdinalClassifier(
     Adapted by: Lee Prevost, https://github.com/leeprevost
     """
 
-    def __init__(self, estimator, *, n_jobs=None):
+    def __init__(self, estimator, *, n_jobs=None, reverse_classes=False):
         # @todo: I think I need a way to pass non default class ordering.   Default is np.sort(np.unique(y)) but what if another order needed such that classes_[0] > classes_[n] (eg. hot, cold, warm)
         self.estimator = estimator
         self.n_jobs = n_jobs
+        self.reverse_classes = reverse_classes
         self.class_order = None
 
-    def fit(self, X, y, reverse_classes=False):
+    def fit(self, X, y):
         """Fit underlying estimators.
         Parameters
         ----------
@@ -165,24 +165,30 @@ class OrdinalClassifier(
             Multi-class targets. An indicator matrix turns on multilabel
             classification.
 
-        reverse_classes: reorders classes to make last class more important (eg. hot>mild>cold)
 
         Returns
         -------
         self : object
-            Instance of fitted estimator.
+            Instance with fitted estimators_ as follows:
+
+            If X has n_classes_, (eg. classes: c0, c1, c2, c3 = 4)
+
+            Produce n-1 estimators each with the binary problem of classifying derived datasets as follows:
+
+                e1 - target > class0 (meaning > order)  --> target = c1, c2, c3  (~ target != c0)
+                e2 - target > class1                    --> target = c2, c3  (~target != c0, c2)
+                e3 - target > class2                    --> target = c3  (~ target != c0, c1, c2)
+
+
         """
         # @todo: keep? same as ovr?
-        # A sparse LabelBinarizer, with sparse_output=True, has been shown to
-        # outperform or match a dense label binarizer in all cases and has also
-        # resulted in less or equal memory consumption in the fit_ovr function
-        # overall.
 
         # following improvised from
         # https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
         # by Muhammad
+
         classes = np.sort(np.unique(y))   # don't I need a way to have input on order?
-        if reverse_classes:
+        if self.reverse_classes:
             self.classes_ = classes[::-1]
         else:
             self.classes_ = classes
@@ -202,7 +208,8 @@ class OrdinalClassifier(
             # emphasize the positive class (eg. "hot" in cold < warm < hot three class problem)
 
             # @todo: derived estimators: classes become imbalanced? how to balance classes?
-            # probable answer: make use of "weight" kwarg when passing estimator to "init".   Warning?
+            # probable answer: make use of "class_weight" kwarg when fitting derived estimators?
+
 
             self.estimators_ = Parallel(n_jobs=self.n_jobs)(
                 delayed(_fit_binary)(
@@ -386,11 +393,9 @@ class OrdinalClassifier(
             decision = self._ordinal_binary_to_class_array(Y)
             return decision
 
-
-
     def _ordinal_binary_to_class_array(self, Y):
         predicted = {}
-        pr_name = "Pr(y={}"
+        pr_name = "Pr(y={})"
         for i, cls in enumerate(self.classes_):
             pr_names = "Pr"
             if i == 0:  # first pass
@@ -403,7 +408,7 @@ class OrdinalClassifier(
                 #Pr(Vi) = Pr(Target > Vi−1) − Pr(Target > Vi) , 1 < i < k
                 predicted.update({pr_name.format(cls): Y[:, cls - 1] - Y[:, cls]})  # middle classes
 
-        self.ordinal_prob_names_ = predicted.keys()
+        self.ordinal_prob_names_ = list(predicted.keys())
 
         predicted = np.vstack(list(predicted.values())).T
         return predicted
