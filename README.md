@@ -7,6 +7,7 @@ by Frank and Hall as oultined in this paper.
 https://www.cs.waikato.ac.nz/~eibe/pubs/ordinal_tech_report.pdf
 
 ## Adapted Abstract:
+
 Machine learning methods for classification problems commonly assume
 that the class values are unordered. However, in many practical applications
 the class values do exhibit a natural order—for example, when learning how to grade
@@ -23,8 +24,9 @@ outperforms the naive state.
 
 The method utilizes a 'simple trick' to allow the underlying classifiers to take
 advantage of the ordinal class information.   First, the data is tranformed from a k-class
-ordinal problem to a k-1 (n-1?) binary class problem. Training starts by deriving new datasets from
-the original dataset, one for each of the k-1 new binary class attributes.
+ordinal problem to a k-1 (sklearn nomenclature: n_classes-1) binary class problem. 
+Training starts by deriving new datasets from the original dataset, one for each of the k-1 
+binary class attributes.
 
 Ordinal attribute A* with ordered values V1, V2, ..., Vk into k-1 binary attrbutes,
 one for each of the original attribute's first K-1 values.  The ith binary attribute
@@ -39,7 +41,9 @@ https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-
 
 Also, as raised by Coffee, this method does seem to improve the lowest class in the ordered class (eg. "cold"
 in cold<warm<hot) more so than the other classes.  So, if the positive class is "hot," consideration should be 
-to reverse the classses in order to improve scores on "hot."  Am conducting further testing on this now.
+to reverse the classses in order to improve scores on "hot."
+
+Classsifier has support for custom ordering and reversed ordering of classes.
 
 Adapted from https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html
 Adapted by Lee Prevost
