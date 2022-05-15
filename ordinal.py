@@ -344,7 +344,7 @@ class OrdinalClassifier(
 
         n_samples = _num_samples(X)
         if self.y_type_ == "multiclass":
-            return np.argmax(self.predict_proba(X), axis=1)
+            return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
         # need to rewrite the following if not "multiclass" or no predict_proba or want to use threshold
         else:
@@ -440,7 +440,7 @@ class OrdinalClassifier(
 
         self.ordinal_prob_names_ = [name for name, _ in predicted]
 
-        predicted = np.vstack((prob for _, prob in predicted)).T
+        predicted = np.vstack(list(prob for _, prob in predicted)).T
         return predicted
 
     def _derived_ys(self, y):
