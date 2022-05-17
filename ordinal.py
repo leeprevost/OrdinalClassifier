@@ -23,6 +23,8 @@ from sklearn.multiclass import (
 from joblib import Parallel
 
 _fit_ovr_binary = _fit_binary
+from typing import Iterable
+
 
 class OrdinalClassifier(
     MultiOutputMixin, ClassifierMixin, MetaEstimatorMixin, BaseEstimator
@@ -157,12 +159,17 @@ class OrdinalClassifier(
     """
 
     def __init__(self, estimator, *, n_jobs=None, reverse_classes=False):
-        # @todo: I think I need a way to pass non default class ordering.   Default is np.sort(np.unique(y)) but what if another order needed such that classes_[0] > classes_[n] (eg. hot, cold, warm)
-        self.estimator = estimator
-        self.n_jobs = n_jobs
-        self.reverse_classes = reverse_classes
-        self.class_order = None
+        self.estimator: BaseEstimator = estimator
+        self.n_jobs: int = n_jobs
+        self.reverse_classes: bool = reverse_classes
+        self.class_order: Iterable = []
+        self._class_ = None  # private for class_
 
+        # validate estimator
+        if not self._has_predict_proba:
+            raise ValueError(
+                "Estimator {} does not have predict_proba method which is required for this classifier.".format(
+                    self.estimator.__repr__()))
 
     def fit(self, X, y):
         """Fit underlying estimators.
@@ -197,31 +204,35 @@ class OrdinalClassifier(
         # https://towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
         # by Muhammad
 
-        classes = np.sort(np.unique(y))   # don't I need a way to have input on order?
-        if self.reverse_classes:
-            self.classes_ = classes[::-1]
-        else:
-            self.classes_ = classes
-
-        # if order is given in the init
-        if self.class_order:
+        if self.class_order:  # case to override everything
+            self.classes_ = self.class_order
+            # if order is given in the init, ignore reversed and ignore cat info
+            # validate class order and stop if invalid
             # need validation of class order.
             # raise error if not superset of class.
             # warning if any missing classes not see during fit.
 
-            # discovery of pandas category data which has order in it?
+        # if y has categorical info, capture it
 
-            self.classes_ = np.array(self.class_order)
+        elif hasattr(y, "cat"):
+            if y.cat.ordered:  #has categories and its ordered
+                classes = y.cat.categories.to_numpy()
+                self.classes_ = classes  # setter converts to np.array from index
+
+        else:  #this is most likely path but handle other two cases above.
+            self.classes_ = np.sort(np.unique(y))
+
+        # ok, now order is set.  Now, reverse it unless it was supplied
+
+        if self.reverse_classes and not self.class_order:
+            self.classes_ = self.classes_[::-1]
 
 
 
-        #self.label_binarizer_ = LabelBinarizer(sparse_output=True)
-        #self.label_binarizer_.fit(y)
         self.y_type_ = type_of_target(y)
 
         if self.y_type_ is not "multiclass":
             raise ValueError("This classifier expects target y to be multiclass.  Got type: {}".format(self.y_type_))
-
 
         # In cases where individual estimators are very fast to train setting
         # n_jobs > 1 in can results in slower performance due to the overhead
@@ -236,7 +247,8 @@ class OrdinalClassifier(
             # @todo: derived estimators: classes become imbalanced? how to balance classes?
             # probable answer: make use of "class_weight" kwarg when fitting derived estimators?
 
-            y_derived, names = self._derived_ys(y)  # added helper to create vector of derived y data (of shape n_samples, n_classes-1)
+            y_derived, names = self._derived_ys(
+                y)  # added helper to create vector of derived y data (of shape n_samples, n_classes-1)
 
             self.estimators_ = Parallel(n_jobs=self.n_jobs)(
                 delayed(_fit_ovr_binary)(
@@ -245,13 +257,12 @@ class OrdinalClassifier(
                     y_d,
                     classes=[
                         "not %s" % self.classes_[i],
-                        " or ".join(str(cls) for cls in self.classes_[i+1:]),
-                        ],
+                        " or ".join(str(cls) for cls in self.classes_[i + 1:]),
+                    ],
 
-                    )
+                )
                 for i, y_d in enumerate(y_derived.T)
-            )  #create a binary estimator for each derived y
-
+            )  # create a binary estimator for each derived y
 
         if hasattr(self.estimators_[0], "n_features_in_"):
             self.n_features_in_ = self.estimators_[0].n_features_in_
@@ -348,9 +359,8 @@ class OrdinalClassifier(
 
         # need to rewrite the following if not "multiclass" or no predict_proba or want to use threshold
         else:
-            #replaced elaborate else logic from OvR with NotImplementedError
+            # replaced elaborate else logic from OvR with NotImplementedError
             raise NotImplementedError("This type of y target not implemented:  type: ".format(self.y_type_))
-
 
     @available_if(_estimators_has("predict_proba"))
     def predict_proba(self, X):
@@ -423,19 +433,19 @@ class OrdinalClassifier(
             return decision
 
     def _ordinal_binary_to_class_array(self, Y):
-        predicted=[]
+        predicted = []
         pr_name = "Pr(y={})"
         for i, cls in enumerate(self.classes_):
             pr_names = "Pr"
 
             if i == 0:  # first pass
-                #Pr(V1) = 1 − Pr(Target > V1)
-                predicted.append((pr_name.format(cls),  1 - Y[:, 0]))  # first class
+                # Pr(V1) = 1 − Pr(Target > V1)
+                predicted.append((pr_name.format(cls), 1 - Y[:, 0]))  # first class
             elif cls == self.classes_[-1]:  # last pass
-                #Pr(Vk) = Pr(Target > Vk−1)
+                # Pr(Vk) = Pr(Target > Vk−1)
                 predicted.append((pr_name.format(cls), Y[:, -1]))  # last class
-            elif i>0:  # middle passes, need qualifier so it doesn't overwrite last class. this shouldn't exec on i=0 and last pass.
-                #Pr(Vi) = Pr(Target > Vi−1) − Pr(Target > Vi) , 1 < i < k
+            elif i > 0:  # middle passes, need qualifier so it doesn't overwrite last class. this shouldn't exec on i=0 and last pass.
+                # Pr(Vi) = Pr(Target > Vi−1) − Pr(Target > Vi) , 1 < i < k
                 predicted.append((pr_name.format(cls), Y[:, i - 1] - Y[:, i]))  # middle classes
 
         self.ordinal_prob_names_ = [name for name, _ in predicted]
@@ -449,16 +459,32 @@ class OrdinalClassifier(
             eg. np.isin(y, classes_[ptr:])
 
             returns array of probabilities, names or arrays
+
+            consider classes_ = 0, 1, 2, 3, 4
+
+                4 estimators (n_classes -1)
+
+                                    ovr(emaining)
+                binary estimators   derived ys (0|1)
+                e1 (y>c0)           y(0|1,2,3,4)
+                e2 (y>c1)           y(1|2,3,4)
+                e3 (y>c2)           y(2|3,4)
+                e4 (y>c3)           y(3|4)
+
+            I found the Ordinal Classifier white paper to be very difficult to follow until I understood:
+                Prob(target > cool) ~ y cool|warm,hot
             """
         derived = []
         names = []
-        for i in range(len(self.classes_)-1):
-            ptr = i+1
-            y_ = np.isin(y, self.classes_[ptr:]) *1
+        for i in range(len(self.classes_) - 1):
+            ptr = i + 1  # pts to start ndx of remaining classes
+            # one class vs. remaining classes
+            class_name = self.classes_[i]  # 'one' class name
+            remaining_classes = self.classes_[ptr:]  # r - remaining classes
+            y_ = np.isin(y, remaining_classes) * 1
             derived.append(y_)
-            names.append("V{}".format(ptr))
+            names.append("V{}: y>class({})".format(ptr, class_name))
         return np.vstack(derived).T, np.array(names)
-
 
     @property
     def multilabel_(self):
@@ -528,5 +554,10 @@ class OrdinalClassifier(
     def _has_predict_proba(self):
         return hasattr(self.estimator, "predict_proba")
 
+    @property
+    def class_(self):
+        return self._class_
 
-
+    @class_.setter
+    def class_(self, iterable):
+        self._class_ = np.array(iterable)
