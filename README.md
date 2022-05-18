@@ -49,6 +49,6 @@ much but order does.
 Adapted from https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html
 Adapted by Lee Prevost
 
-#Testing (in progress)
+# Testing (in progress)
 
 [Cross validated test results on sklean diabetes dataset.  See evaluate.py for code](/ordinal_cv_test.md)
