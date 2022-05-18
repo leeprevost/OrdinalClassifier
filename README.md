@@ -51,10 +51,6 @@ Adapted by Lee Prevost
 
 # Testing (in progress)
 
-<<<<<<< HEAD
 [Cross validated test results on sklean diabetes dataset.  See evaluate.py for code](/ordinal_cv_test.md)
 
 [Precision and Recall on Pos Class for varying orders](/Prec and recall of pos class on varying orders.jpg)
-=======
-[Cross validated test results on sklearn diabetes dataset.  See evaluate.py for code](/ordinal_cv_test.md)
->>>>>>> 087db957070a49d69be7b16a0708f3dcb7700b55
