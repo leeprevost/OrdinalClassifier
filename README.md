@@ -51,4 +51,4 @@ Adapted by Lee Prevost
 
 # Testing (in progress)
 
-[Cross validated test results on sklean diabetes dataset.  See evaluate.py for code](/ordinal_cv_test.md)
+[Cross validated test results on sklearn diabetes dataset.  See evaluate.py for code](/ordinal_cv_test.md)
