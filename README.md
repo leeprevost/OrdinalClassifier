@@ -43,7 +43,12 @@ Also, as raised by Coffee, this method does seem to improve the lowest class in 
 in cold<warm<hot) more so than the other classes.  So, if the positive class is "hot," consideration should be 
 to reverse the classses in order to improve scores on "hot."
 
-Classsifier has support for custom ordering and reversed ordering of classes.
+Classsifier has support for custom ordering and reversed ordering of classes.  Reversal does not seem to matter 
+much but order does.
 
 Adapted from https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html
 Adapted by Lee Prevost
+
+#Testing (in progress)
+
+[Cross validated test results](/ordinal_cv_test.md)
